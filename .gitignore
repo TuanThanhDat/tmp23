@@ -10,6 +10,9 @@ data/
 FFTformer/pretrain_models/*.pth
 Image-Adaptive-YOLO/experiments/exp_101/checkpoint/
 Image-Adaptive-YOLO/experiments_lowlight/exp_58/checkpoint/
+yolov9/weights/
+yolov9/runs/
+submission/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
