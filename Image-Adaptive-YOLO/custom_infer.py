@@ -17,6 +17,7 @@ import time
 from filters import DefogFilter,ImprovedWhiteBalanceFilter,GammaFilter,ToneFilter, ContrastFilter, UsmFilter
 
 import glob
+from tqdm import tqdm
 
 exp_folder = os.path.join(args.exp_dir, 'exp_{}'.format(args.exp_num))
 
@@ -128,10 +129,7 @@ class YoloTest(object):
                     self.input_data_clean:image_data
                 }
             )
-            
             time_one_img = time.time() - start_time
-            print('process one image need:', time_one_img)
-
         else:
             start_time = time.time()
 
@@ -143,7 +141,6 @@ class YoloTest(object):
                 }
             )
         time_one_img = time.time() - start_time
-        print('process one image need:', time_one_img)
 
         pred_bbox = np.concatenate([np.reshape(pred_sbbox, (-1, 5 + self.num_classes)),
                                     np.reshape(pred_mbbox, (-1, 5 + self.num_classes)),
@@ -152,7 +149,7 @@ class YoloTest(object):
         bboxes = utils.nms(bboxes, self.iou_threshold)
 
         if self.isp_flag:
-            print('ISP params :  ', isp_param)
+            # print('ISP params :  ', isp_param)
             image_isped = utils.image_unpreporcess(image_isped[0, ...], [org_h, org_w])
             image_isped = np.clip(image_isped * 255, 0, 255)
 
@@ -262,12 +259,11 @@ def main(DIP):
     else:
         path_list = sorted(glob.glob(f"{data_dir}/*.png"))
         
-    for path in path_list:
-        print(path)
+    for path in tqdm(path_list, desc="Applying DIP"):
         image_name = os.path.split(path)[-1]
         DIP_image = DIP.infer(path)
         cv2.imwrite(f"{output_dir}/{image_name}",DIP_image)
-        print(f"==Applied DIP to {image_name} successfully!!!")
+        # print(f"==Applied DIP to {image_name} successfully!!!")
 
 
 if __name__ == '__main__':

@@ -59,20 +59,20 @@ class YOLOV3(object):
             filter_parameters = []
             for j, filter in enumerate(filters):
                 with tf.variable_scope('filter_%d' % j):
-                    print('    creating filter:', j, 'name:', str(filter.__class__), 'abbr.',
-                          filter.get_short_name())
-                    print('      filter_features:', filter_features.shape)
+                    # print('    creating filter:', j, 'name:', str(filter.__class__), 'abbr.',
+                        #   filter.get_short_name())
+                    # print('      filter_features:', filter_features.shape)
 
                     filtered_image_batch, filter_parameter = filter.apply(
                         filtered_image_batch, filter_features, defog_A, IcA)
                     filter_parameters.append(filter_parameter)
                     filter_imgs_series.append(filtered_image_batch)
-                    print('      output:', filtered_image_batch.shape)
+                    # print('      output:', filtered_image_batch.shape)
 
             self.filter_params = filter_parameters
             # end_time = time.time()
             # print('filters所用时间：', end_time - start_time)
-            
+        
         
         # input_data_shape = tf.shape(input_data)
         # batch_size = input_data_shape[0]

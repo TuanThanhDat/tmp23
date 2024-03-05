@@ -3,7 +3,7 @@ import cv2
 import numpy as np 
 import argparse
 import glob
-
+from tqdm import tqdm
 
 def apply_fisheye_mask(image, mask):
     mask = mask.astype(np.int8)
@@ -26,7 +26,7 @@ def main(args):
     else:
         path_list = sorted(glob.glob(f"{data_dir}/*.png"))
 
-    for path in path_list:
+    for path in tqdm(path_list, desc="Applying mask"):
         image_name = os.path.split(path)[-1]
         image = cv2.imread(path)
         camera = image_name.split('_')[0][6:]
@@ -39,7 +39,7 @@ def main(args):
             mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
             result = apply_fisheye_mask(image,mask)
             cv2.imwrite(f'{output_dir}/{image_name}',result)
-        print(f"==Applied mask to {image_name} successfully!!!")
+        # print(f"==Applied mask to {image_name} successfully!!!")
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()

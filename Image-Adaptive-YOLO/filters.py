@@ -219,7 +219,7 @@ class UsmFilter(Filter):#Usm_param is in [Defog_range]
       return tf.expand_dims(k, 1) * k
 
     kernel_i = make_gaussian_2d_kernel(5)
-    print('kernel_i.shape', kernel_i.shape)
+    # print('kernel_i.shape', kernel_i.shape)
     kernel_i = tf.tile(kernel_i[:, :, tf.newaxis, tf.newaxis], [1, 1, 1, 1])
 
     # outputs = []
@@ -238,8 +238,8 @@ class UsmFilter(Filter):#Usm_param is in [Defog_range]
 
     output = tf.concat(outputs, axis=3)
     img_out = (img - output) * param[:, None, None, :] + img
-    print(f'Param: {param}')
-    print(f'img_out: {img_out.dtype}')
+    # print(f'Param: {param}')
+    # print(f'img_out: {img_out.dtype}')
     # img_out = (img - output) * 2.5 + img
 
     return img_out
@@ -264,7 +264,7 @@ class UsmFilter_sigma(Filter):#Usm_param is in [Defog_range]
       return tf.expand_dims(k, 1) * k
 
     kernel_i = make_gaussian_2d_kernel(param[:, None, None, :])
-    print('kernel_i.shape', kernel_i.shape)
+    # print('kernel_i.shape', kernel_i.shape)
     kernel_i = tf.tile(kernel_i[:, :, tf.newaxis, tf.newaxis], [1, 1, 1, 1])
 
     # outputs = []
@@ -298,15 +298,15 @@ class DefogFilter(Filter):#Defog_param is in [Defog_range]
     return tanh_range(*self.cfg.defog_range)(features)
 
   def process(self, img, param, defog_A, IcA):
-    print('      img:', img.shape)
-    print('      IcA:', IcA.shape)
-    print('      defog_A:', defog_A.shape)
+    # print('      img:', img.shape)
+    # print('      IcA:', IcA.shape)
+    # print('      defog_A:', defog_A.shape)
 
     tx = 1 - param[:,None,None,:]*IcA
     # tx = 1 - 0.5*IcA
     tx_1 = tf.tile(tx, [1, 1, 1, 3])
     tx_1 = tf.cast(tx_1,tf.float32)
-    print('tx_1',tx_1[:3,:3,...])
+    # print('tx_1',tx_1[:3,:3,...])
     
     return (img - defog_A[:, None, None, :])/tf.maximum(tx_1, 0.01) + defog_A[:, None, None, :]
 
