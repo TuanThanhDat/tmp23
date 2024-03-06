@@ -1,7 +1,7 @@
 
 weight="/home/gb2t/Desktop/AIO_Pending/yolov9/weights/best.pt"
-# data_dir="/home/gb2t/Desktop/AIO_Pending/preprocess_images"
-data_dir="/home/gb2t/Desktop/huynho/Co-DETR/testset/images"
+data_dir="/home/gb2t/Desktop/AIO_Pending/preprocess_images"
+# data_dir="/home/gb2t/Desktop/huynho/Co-DETR/testset/images"
 
 GPU=2
 

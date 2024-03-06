@@ -86,31 +86,18 @@ cfg.contrast_begin_param = 13
 cfg.usm_begin_param = 14
 
 
-# Track 4
 cfg.curve_steps = 8
-cfg.gamma_range = 3
+cfg.gamma_range = 2.5
 cfg.exposure_range = 3.5
 cfg.wb_range = 1.1
 cfg.color_curve_range = (0.90, 1.10)
 cfg.lab_curve_range = (0.90, 1.10)
-cfg.tone_curve_range = (0.5, 2)
+# cfg.tone_curve_range = (0.5, 2)
+cfg.tone_curve_range = (0.75, 1.25)
 # cfg.defog_range = (0.1, 1.0)
-cfg.defog_range = (0.5, 1.0)
+cfg.defog_range = (0.1, 0.5)
 # cfg.usm_range = (0.0, 5)
 cfg.usm_range = (0.0, 2.5)
-
-# Track 5
-# cfg.curve_steps = 8
-# cfg.gamma_range = 3
-# # cfg.gamma_range = 3.5
-# cfg.exposure_range = 3.5
-# cfg.wb_range = 1.1
-# cfg.color_curve_range = (0.90, 1.10)
-# cfg.lab_curve_range = (0.90, 1.10)
-# cfg.tone_curve_range = (0.5, 2)
-# cfg.defog_range = (0.1, 1.0)
-# # cfg.usm_range = (0.0, 5)
-# cfg.usm_range = (0.0, 1.5)
 
 
 # Masking is DISABLED

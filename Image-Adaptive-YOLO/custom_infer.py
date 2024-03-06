@@ -19,17 +19,36 @@ from filters import DefogFilter,ImprovedWhiteBalanceFilter,GammaFilter,ToneFilte
 import glob
 from tqdm import tqdm
 
-exp_folder = os.path.join(args.exp_dir, 'exp_{}'.format(args.exp_num))
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-# if args.use_gpu == 0:
-#     gpu_id = '-1'
-# else:
-#     gpu_id = args.gpu_id
-#     gpu_list = list()
-#     gpu_ids = gpu_id.split(',')
-#     for i in range(len(gpu_ids)):
-#         gpu_list.append('/gpu:%d' % int(i))
-# os.environ['CUDA_VISIBLE_DEVICES'] = gpu_id
+def DarkChannel(im):
+            b, g, r = cv2.split(im)
+            dc = cv2.min(cv2.min(r, g), b)
+            return dc
+
+def AtmLight(im, dark):
+    [h, w] = im.shape[:2]
+    imsz = h * w
+    numpx = int(max(math.floor(imsz / 1000), 1))
+    darkvec = dark.reshape(imsz, 1)
+    imvec = im.reshape(imsz, 3)
+
+    indices = darkvec.argsort(0)
+    indices = indices[(imsz - numpx):imsz]
+
+    atmsum = np.zeros([1, 3])
+    for ind in range(1, numpx):
+        atmsum = atmsum + imvec[indices[ind]]
+
+    A = atmsum / numpx
+    return A
+
+def DarkIcA(im, A):
+    im3 = np.empty(im.shape, im.dtype)
+    for ind in range(0, 3):
+        im3[:, :, ind] = im[:, :, ind] / A[0, ind]
+    return DarkChannel(im3)
+
 
 class YoloTest(object):
     def __init__(self):
@@ -68,41 +87,16 @@ class YoloTest(object):
         # self.sess  = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
         self.saver = tf.train.Saver(ema_obj.variables_to_restore())
         self.saver.restore(self.sess, self.weight_file)
+        
+    def reset_sess(self):
+        tf.reset_default_graph()
+        tf.keras.backend.clear_session()
 
     def predict(self, image):
-
         org_image = np.copy(image)
         org_h, org_w, _ = org_image.shape
-        image_data = utils.image_preporcess(image, [self.input_size, self.input_size])
+        image_data = utils.image_preporcess(org_image, [self.input_size, self.input_size])
         image_data = image_data[np.newaxis, ...]
-
-        def DarkChannel(im):
-            b, g, r = cv2.split(im)
-            dc = cv2.min(cv2.min(r, g), b)
-            return dc
-
-        def AtmLight(im, dark):
-            [h, w] = im.shape[:2]
-            imsz = h * w
-            numpx = int(max(math.floor(imsz / 1000), 1))
-            darkvec = dark.reshape(imsz, 1)
-            imvec = im.reshape(imsz, 3)
-
-            indices = darkvec.argsort(0)
-            indices = indices[(imsz - numpx):imsz]
-
-            atmsum = np.zeros([1, 3])
-            for ind in range(1, numpx):
-                atmsum = atmsum + imvec[indices[ind]]
-
-            A = atmsum / numpx
-            return A
-
-        def DarkIcA(im, A):
-            im3 = np.empty(im.shape, im.dtype)
-            for ind in range(0, 3):
-                im3[:, :, ind] = im[:, :, ind] / A[0, ind]
-            return DarkChannel(im3)
 
         if self.isp_flag:
             dark = np.zeros((image_data.shape[0], image_data.shape[1], image_data.shape[2]))
@@ -116,9 +110,7 @@ class YoloTest(object):
                     dark[i, ...] = dark_i
                     defog_A[i, ...] = defog_A_i
                     IcA[i, ...] = IcA_i
-
             IcA = np.expand_dims(IcA, axis=-1)
-            start_time = time.time()
             pred_sbbox, pred_mbbox, pred_lbbox, image_isped, isp_param, filter_imgs_series = self.sess.run(
                 [self.pred_sbbox, self.pred_mbbox, self.pred_lbbox, self.image_isped, self.isp_params, self.filter_imgs_series],
                 feed_dict={
@@ -129,10 +121,7 @@ class YoloTest(object):
                     self.input_data_clean:image_data
                 }
             )
-            time_one_img = time.time() - start_time
         else:
-            start_time = time.time()
-
             pred_sbbox, pred_mbbox, pred_lbbox, image_isped, isp_param = self.sess.run(
                 [self.pred_sbbox, self.pred_mbbox, self.pred_lbbox, self.image_isped, self.isp_params],
                 feed_dict={
@@ -140,37 +129,11 @@ class YoloTest(object):
                     self.trainable: False
                 }
             )
-        time_one_img = time.time() - start_time
-
-        pred_bbox = np.concatenate([np.reshape(pred_sbbox, (-1, 5 + self.num_classes)),
-                                    np.reshape(pred_mbbox, (-1, 5 + self.num_classes)),
-                                    np.reshape(pred_lbbox, (-1, 5 + self.num_classes))], axis=0)
-        bboxes = utils.postprocess_boxes(pred_bbox, (org_h, org_w), self.input_size, self.score_threshold)
-        bboxes = utils.nms(bboxes, self.iou_threshold)
-
-        if self.isp_flag:
-            # print('ISP params :  ', isp_param)
-            image_isped = utils.image_unpreporcess(image_isped[0, ...], [org_h, org_w])
-            image_isped = np.clip(image_isped * 255, 0, 255)
-
-            # filter_imgs_series = np.array(filter_imgs_series)
-            # print('filter_imgs_series.shape:', filter_imgs_series.shape)
-            # for i in range(filter_imgs_series.shape[0]):
-            #     image_isped_i = utils.image_unpreporcess(filter_imgs_series[i, 0, ...], [org_h, org_w])
-            #     image_isped_i = np.clip(image_isped_i * 255, 0, 255)
-            #     cv2.imwrite(self.write_image_path + image_name[:-4] + 'f' + str(i) +'.png', image_isped_i)
-
-        else:
-            image_isped = np.clip(image, 0, 255)
-            # image_isped = utils.image_unpreporcess(image_isped, [org_h, org_w])
-            # cv2.imwrite(self.write_image_path + 'low'+ image_name, image_isped)
-
         return isp_param
 
     def infer(self, image_path, identity_ratio=0.5):
         image = cv2.imread(image_path)
-        
-        image_data = image.copy().astype(np.float32)
+        image_data = image.astype(np.float32)
         image_data = image_data[np.newaxis, ...]
         
         try:
@@ -181,34 +144,6 @@ class YoloTest(object):
         filtered_image_batch = image_data / 255
         filters = cfg.filters
         filters = [x(image_data, cfg) for x in filters]
-        
-        def DarkChannel(im):
-            b, g, r = cv2.split(im)
-            dc = cv2.min(cv2.min(r, g), b)
-            return dc
-
-        def AtmLight(im, dark):
-            [h, w] = im.shape[:2]
-            imsz = h * w
-            numpx = int(max(math.floor(imsz / 1000), 1))
-            darkvec = dark.reshape(imsz, 1)
-            imvec = im.reshape(imsz, 3)
-
-            indices = darkvec.argsort(0)
-            indices = indices[(imsz - numpx):imsz]
-
-            atmsum = np.zeros([1, 3])
-            for ind in range(1, numpx):
-                atmsum = atmsum + imvec[indices[ind]]
-
-            A = atmsum / numpx
-            return A
-
-        def DarkIcA(im, A):
-            im3 = np.empty(im.shape, im.dtype)
-            for ind in range(0, 3):
-                im3[:, :, ind] = im[:, :, ind] / A[0, ind]
-            return DarkChannel(im3)
 
         dark = np.zeros((image_data.shape[0], image_data.shape[1], image_data.shape[2]))
         defog_A = np.zeros((image_data.shape[0], image_data.shape[3]))
@@ -240,9 +175,11 @@ class YoloTest(object):
         if isinstance(filtered_image_batch, tf.Tensor):
             with tf.compat.v1.Session() as sess:
                 filtered_image_batch = sess.run(filtered_image_batch)
+                sess.close()
 
         filtered_image_batch = np.clip(filtered_image_batch * 255, 0, 255)
         filtered_image_batch = np.squeeze(filtered_image_batch)
+        self.reset_sess()
         return filtered_image_batch
 
 
@@ -263,14 +200,9 @@ def main(DIP):
         image_name = os.path.split(path)[-1]
         DIP_image = DIP.infer(path)
         cv2.imwrite(f"{output_dir}/{image_name}",DIP_image)
-        # print(f"==Applied DIP to {image_name} successfully!!!")
 
 
 if __name__ == '__main__':
     DIP = YoloTest()
-    print('Start applying DIP')
+    # print('Start applying DIP')
     main(DIP)
-
-
-
-
