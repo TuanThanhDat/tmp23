@@ -13,24 +13,22 @@ from sahi.prediction import ObjectPrediction
 from sahi.utils.compatibility import fix_full_shape_list, fix_shift_amount_list
 from sahi.utils.import_utils import check_requirements
 
+from sahi.yolov9 import YOLOV9
 
 class Yolov9DetectionModel(DetectionModel):
-    def check_dependencies(self) -> None:
-        check_requirements(["ultralytics"])
-
     def load_model(self):
         """
         Detection model is initialized and set to self.model.
         """
-
-        from ultralytics import YOLO
-
         try:
-            model = YOLO(self.model_path)
-            model.to(self.device)
+            model = YOLOV9(weight_path=self.model_path,
+                       device=self.device,
+                       imgsz=self.image_size)
+
             self.set_model(model)
         except Exception as e:
             raise TypeError("model_path is not a valid yolov8 model path: ", e)
+        
 
     def set_model(self, model: Any):
         """
@@ -59,15 +57,15 @@ class Yolov9DetectionModel(DetectionModel):
         if self.model is None:
             raise ValueError("Model is not loaded, load it by calling .load_model()")
         if self.image_size is not None:  # ADDED IMAGE SIZE OPTION FOR YOLOV8 MODELS:
-            prediction_result = self.model(
-                image[:, :, ::-1], imgsz=self.image_size, verbose=False, device=self.device
+            prediction_result = self.model.predict(
+                image[:, :, ::-1]
             )  # YOLOv8 expects numpy arrays to have BGR
         else:
-            prediction_result = self.model(
-                image[:, :, ::-1], verbose=False, device=self.device
+            prediction_result = self.model.predict(
+                image[:, :, ::-1]
             )  # YOLOv8 expects numpy arrays to have BGR
         prediction_result = [
-            result.boxes.data[result.boxes.data[:, 4] >= self.confidence_threshold] for result in prediction_result
+            result[result[:,4] >= self.confidence_threshold,:] for result in prediction_result
         ]
 
         self._original_predictions = prediction_result

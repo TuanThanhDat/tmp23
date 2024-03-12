@@ -20,6 +20,191 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
 
+def box_iou(box1, box2):
+    """Calculate the Intersection over Union (IoU) between two sets of bounding boxes.
+    
+    Args:
+        box1: Tensor of shape (N, 4) containing bounding boxes in format (x1, y1, x2, y2).
+        box2: Tensor of shape (M, 4) containing bounding boxes in format (x1, y1, x2, y2).
+        
+    Returns:
+        Tensor of shape (N, M) containing IoU between each pair of boxes.
+    """
+    intersect_tl = torch.max(box1[:2], box2[:, :2])  # Intersection top-left
+    intersect_br = torch.min(box1[2:], box2[:, 2:])  # Intersection bottom-right
+    intersect_wh = torch.clamp(intersect_br - intersect_tl, min=0)  # Intersection width and height
+    intersect_area = intersect_wh[:, 0] * intersect_wh[:, 1]  # Intersection area
+
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])  # Area of box1
+    area2 = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])  # Area of box2
+
+    union_area = area1 + area2 - intersect_area  # Union area
+    iou = intersect_area / union_area  # IoU
+
+    return iou
+
+
+def iou(box1, box2):
+    """Calculate the Intersection over Union (IoU) between two bounding boxes.
+    
+    Args:
+        box1: Tensor of shape (4,) containing bounding box in format (x1, y1, x2, y2).
+        box2: Tensor of shape (M, 4) containing bounding boxes in format (x1, y1, x2, y2).
+        
+    Returns:
+        Tensor of shape (M,) containing IoU between box1 and each box in box2.
+    """
+    intersect_tl = torch.max(box1[:2], box2[:, :2])  # Intersection top-left
+    intersect_br = torch.min(box1[2:], box2[:, 2:])  # Intersection bottom-right
+    intersect_wh = torch.clamp(intersect_br - intersect_tl, min=0)  # Intersection width and height
+    intersect_area = intersect_wh[:, 0] * intersect_wh[:, 1]  # Intersection area
+
+    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])  # Area of box1
+    area2 = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])  # Area of box2
+
+    union_area = area1 + area2 - intersect_area  # Union area
+    iou = intersect_area / union_area  # IoU
+
+    return iou
+
+
+def soft_nms_batched(predictions, conf_thres=0.25, iou_thres=0.2, sigma=0.5):
+    """Soft Non-Maximum Suppression (Soft-NMS) on batched inference results to reject overlapping detections
+    
+    Args:
+        predictions: Tensor containing detection predictions of shape (B, N, 6) where B is the batch size, 
+                     N is the maximum number of detections per image, and each detection has the format 
+                     [x1, y1, x2, y2, conf, cls].
+        conf_thres (float): Confidence threshold to filter out low-confidence detections.
+        iou_thres (float): IoU threshold to determine overlapping detections.
+        sigma (float): Sigma parameter for the Gaussian penalty function.
+        
+    Returns:
+        Tensor containing filtered detections after applying Soft-NMS.
+    """
+    # batch_size, num_predictions, _ = predictions.size()
+
+    # Reshape predictions to have the correct format
+    # predictions = predictions.view(batch_size, num_predictions, -1)
+    # print(predictions.shape)
+    if isinstance(predictions, (list, tuple)):  # YOLO model in validation model, output = (inference_out, loss_out)
+        predictions = predictions[0]  # select only inference output
+    # print(predictions.shape)
+    
+    batch_size = predictions.shape[0]
+    
+    output = []
+
+    prediction = predictions
+
+    # Sort detections by confidence score in descending order
+    scores = prediction[:, 4]
+    indices = torch.argsort(scores, descending=True)
+    prediction = prediction[indices]
+
+    # Apply Soft-NMS
+    keep = []
+    while prediction.size(0) > 0:
+        # Get the detection with the highest confidence score
+        highest_score_detection = prediction[0]
+        # print(highest_score_detection.shape)
+        
+        # Calculate IoU between the highest scoring detection and all other detections
+        ious = box_iou(highest_score_detection[:4], prediction[:, :4])
+
+        # Apply Gaussian penalty function to confidence scores
+        scores = torch.exp(-(ious ** 2) / sigma) * prediction[:, 4]
+
+        # Update confidence scores and sort again
+        prediction[:, 4] = scores
+        indices = torch.argsort(scores, descending=True)
+        prediction = prediction[indices]
+
+        # Keep the highest scoring detection
+        keep.append(highest_score_detection)
+
+        # Remove detections with IoU > iou_thres
+        detection_box = highest_score_detection[:4]
+        prediction = prediction[iou(detection_box, prediction[:, :4]) <= iou_thres]
+
+    # Stack kept detections into a single tensor
+    if len(keep) > 0:
+        keep = torch.stack(keep)
+        output.append(keep)
+
+    # Stack detections from all batches into a single tensor
+    if len(output) > 0:
+        output = torch.stack(output)
+    else:
+        # If no detections were kept for any batch, return an empty tensor
+        output = torch.empty(0, dtype=predictions.dtype, device=predictions.device)
+
+    return output
+
+
+def soft_nms_pytorch(prediction, sigma=0.5, thresh=0.001, cuda=0):
+    """
+    Build a pytorch implement of Soft NMS algorithm.
+    # Augments
+        dets:        boxes coordinate tensor (format:[y1, x1, y2, x2])
+        box_scores:  box score tensors
+        sigma:       variance of Gaussian function
+        thresh:      score thresh
+        cuda:        CUDA flag
+    # Return
+        the index of the selected boxes
+    """
+    prediction = prediction[0]
+    dets = prediction[:4,:]
+    box_scores = prediction[4,:]
+    # Indexes concatenate boxes with the last column
+    N = dets.shape[0]
+    if cuda:
+        indexes = torch.arange(0, N, dtype=torch.float).cuda().view(N, 1)
+    else:
+        indexes = torch.arange(0, N, dtype=torch.float).view(N, 1)
+    dets = torch.cat((dets, indexes), dim=1)
+
+    # The order of boxes coordinate is [y1,x1,y2,x2]
+    y1 = dets[:, 0]
+    x1 = dets[:, 1]
+    y2 = dets[:, 2]
+    x2 = dets[:, 3]
+    scores = box_scores
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+
+    for i in range(N):
+        # intermediate parameters for later parameters exchange
+        tscore = scores[i].clone()
+        pos = i + 1
+
+        if i != N - 1:
+            maxscore, maxpos = torch.max(scores[pos:], dim=0)
+            if tscore < maxscore:
+                dets[i], dets[maxpos.item() + i + 1] = dets[maxpos.item() + i + 1].clone(), dets[i].clone()
+                scores[i], scores[maxpos.item() + i + 1] = scores[maxpos.item() + i + 1].clone(), scores[i].clone()
+                areas[i], areas[maxpos + i + 1] = areas[maxpos + i + 1].clone(), areas[i].clone()
+
+        # IoU calculate
+        yy1 = np.maximum(dets[i, 0].to("cpu").numpy(), dets[pos:, 0].to("cpu").numpy())
+        xx1 = np.maximum(dets[i, 1].to("cpu").numpy(), dets[pos:, 1].to("cpu").numpy())
+        yy2 = np.minimum(dets[i, 2].to("cpu").numpy(), dets[pos:, 2].to("cpu").numpy())
+        xx2 = np.minimum(dets[i, 3].to("cpu").numpy(), dets[pos:, 3].to("cpu").numpy())
+        
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = torch.tensor(w * h).cuda() if cuda else torch.tensor(w * h)
+        ovr = torch.div(inter, (areas[i] + areas[pos:] - inter))
+
+        # Gaussian decay
+        weight = torch.exp(-(ovr * ovr) / sigma)
+        scores[pos:] = weight * scores[pos:]
+
+    # select the boxes and keep the corresponding indexes
+    keep = dets[:, 4][scores > thresh].int()
+
+    return keep
+
 @smart_inference_mode()
 def run(
         weights=ROOT / 'yolo.pt',  # model path or triton URL
@@ -27,7 +212,7 @@ def run(
         data=ROOT / 'data/coco.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
         conf_thres=0.25,  # confidence threshold
-        iou_thres=0.45,  # NMS IOU threshold
+        iou_thres=0.7,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         view_img=False,  # show results
@@ -101,6 +286,7 @@ def run(
         with dt[2]:
             pred = pred[0][1] if isinstance(pred[0], list) else pred[0]
             pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
+            # pred = soft_nms_batched(pred,conf_thres,iou_thres)
 
         # Second-stage classifier (optional)
         # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
@@ -194,7 +380,7 @@ def parse_opt():
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='(optional) dataset.yaml path')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.45, help='NMS IoU threshold')
+    parser.add_argument('--iou-thres', type=float, default=0.7, help='NMS IoU threshold')
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='show results')

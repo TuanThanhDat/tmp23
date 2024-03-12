@@ -14,7 +14,8 @@ yolov9/weights/
 yolov9/runs/
 submission/
 results/
-sahi/yolov9/
+sahi/sahi/yolov9/
+demo_data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
